@@ -1,0 +1,232 @@
+import JSZip from 'jszip';
+import saveAs from 'file-saver';
+import { views } from './state.js';
+
+export function setupExport({ btnExport, saveCurrentViewState }) {
+    btnExport.addEventListener('click', async () => {
+        // Save current view state before exporting to ensure latest changes are captured
+        saveCurrentViewState();
+
+        const zip = new JSZip();
+
+        // 1. Generate HTML for ALL views
+        for (const key of Object.keys(views)) {
+            const view = views[key];
+            const htmlContent = generateHTMLForView(view);
+            zip.file(view.filename, htmlContent);
+        }
+
+        // 2. CSS (Shared)
+        const cssContent = `
+/* Universal CSS Reset: Targets every element to zero out all spacing */
+* {
+    margin: 0 !important;
+    padding: 0; /* Removed !important to allow component padding to work */
+    box-sizing: border-box !important;
+}
+
+/* Ensure the main root elements are also explicitly zeroed out */
+body, html {
+    overflow: hidden; /* Keep this to prevent scrollbars */
+    width: 320px; /* Fixed Twitch panel width */
+    height: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+body {
+    background-color: #0e0e10; /* Dark mode base */
+    color: white;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+}
+#app {
+    position: relative;
+    width: 320px; /* Match fixed panel width */
+    max-width: 320px;
+    min-height: 100px;
+    margin: 0 auto;
+}
+.teb-wrapper {
+    position: absolute;
+    box-sizing: border-box;
+}
+.teb-btn {
+    border: none;
+    padding: 8px 16px !important;
+    border-radius: 4px;
+    width: 100%;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: opacity 0.2s;
+}
+.teb-btn:hover { opacity: 0.9; }
+.teb-text { line-height: 1.4; }
+.teb-image { max-width: 100%; height: auto; display: block; border-radius: 4px; }
+.teb-divider { width: 100%; height: 1px; }
+.teb-iframe { width: 100%; height: 100%; border: none; display: block; }
+.teb-container { border-radius: 4px; height: 100%; box-sizing: border-box; }
+        `;
+
+        // 3. JS (Shared)
+        const jsContent = `
+window.twitch = window.Twitch.ext;
+
+twitch.onContext((context) => {
+    console.log('Context:', context);
+});
+
+twitch.onAuthorized((auth) => {
+    console.log('Authorized:', auth);
+});
+
+// Add basic interactions
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.teb-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            console.log('Button clicked:', btn.textContent);
+        });
+    });
+});
+        `;
+
+        // Derive panel height from current view settings (fallback to 300)
+        const panelHeight = (views.panel && views.panel.height) ? views.panel.height : 300;
+
+        // 4. Manifest
+        const manifest = {
+            "name": "My DragDrop Extension",
+            "version": "0.0.1",
+            "description": "Generated with Twitch Extension Builder",
+            "author": "You",
+            "views": {
+                "panel": {
+                    "viewer_url": "panel.html",
+                    "height": panelHeight,
+                    "can_link_external_content": false
+                },
+                "mobile": {
+                    "viewer_url": "mobile.html"
+                },
+                "config": {
+                    "viewer_url": "config.html"
+                },
+                "component": {
+                    "viewer_url": "video_component.html",
+                    "aspect_width": 3000,
+                    "aspect_height": 2000,
+                    "zoom": false
+                },
+                "video_overlay": {
+                    "viewer_url": "video_overlay.html"
+                }
+            },
+            "manifest_version": "0.0.1"
+        };
+
+        zip.file("panel.css", cssContent);
+        zip.file("viewer.js", jsContent);
+        zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+        const content = await zip.generateAsync({ type: "blob" });
+        saveAs(content, "extension.zip");
+    });
+}
+
+function generateHTMLForView(view) {
+    const elementsHTML = (view.elements || []).map(el => {
+        const type = el.type;
+        const data = el.props || {};
+        const layout = getLayoutStyle(data);
+
+        let inner = '';
+        switch(type) {
+            case 'text':
+                inner = `<div class="teb-text" style="color:${escapeAttr(data.color)};font-size:${escapeAttr(data.size)};text-align:${escapeAttr(data.align)};">${escapeHtml(data.text || '')}</div>`;
+                break;
+            case 'button':
+                inner = `<button class="teb-btn" style="background-color:${escapeAttr(data.bgColor)};color:${escapeAttr(data.color)};">${escapeHtml(data.label || '')}</button>`;
+                break;
+            case 'container':
+                inner = `<div class="teb-container" style="background-color:${escapeAttr(data.bgColor)};padding:${escapeAttr(data.padding)};border-radius:${escapeAttr(data.radius)};color:#adadb8;font-size:13px;text-align:center;border:1px dashed #444;">Container Area</div>`;
+                break;
+            case 'image':
+                inner = `<img class="teb-image" src="${escapeAttr(data.src || '')}" alt="${escapeAttr(data.alt || '')}" />`;
+                break;
+            case 'divider':
+                inner = `<div class="teb-divider" style="background-color:${escapeAttr(data.color)};margin:${escapeAttr(data.margin)} 0;"></div>`;
+                break;
+            case 'iframe':
+                {
+                    const src = data.src || '';
+                    let isWebSim = false;
+                    try {
+                        const u = new URL(src);
+                        if (/(^|\.)websim\.(ai|com)$/.test(u.hostname)) isWebSim = true;
+                    } catch(e){}
+                    
+                    if (isWebSim) {
+                        inner = `<iframe class="teb-iframe" src="${escapeAttr(src)}"></iframe>`;
+                    }
+                }
+                break;
+            default:
+                inner = '';
+        }
+
+        if (!inner) return '';
+        return `<div class="teb-wrapper" style="${layout}">${inner}</div>`;
+    }).join('\n');
+
+    // Special styles for overlay/component (Transparency)
+    let extraStyle = '';
+    if (view.type === 'video_overlay' || view.type === 'component') {
+        extraStyle = '<style>body { background-color: transparent !important; }</style>';
+    }
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <title>${escapeHtml(view.label || '')}</title>
+    <link rel="stylesheet" href="panel.css">
+    ${extraStyle}
+</head>
+<body>
+    <div id="app">
+${elementsHTML}
+    </div>
+    <script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+    <script src="viewer.js"></script>
+</body>
+</html>`;
+}
+
+function getLayoutStyle(data) {
+    const x = typeof data.x === 'number' ? data.x : 0;
+    const y = typeof data.y === 'number' ? data.y : 0;
+    const w = typeof data.width === 'number' ? data.width : null;
+    const h = typeof data.height === 'number' ? data.height : null;
+
+    let style = `left:${x}px;top:${y}px;`;
+    if (w !== null) style += `width:${w}px;`;
+    if (h !== null) style += `height:${h}px;`;
+    return style;
+}
+
+function escapeHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function escapeAttr(str) {
+    return String(str || '').replace(/"/g, '&quot;');
+}
