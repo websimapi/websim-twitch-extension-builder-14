@@ -17,6 +17,34 @@ polyfill({
 const canvas = document.getElementById('panel-canvas');
 const panelHeightControl = document.getElementById('panel-height-control');
 
+// Delete Control Logic
+const btnDeleteSelected = document.getElementById('btn-delete-selected');
+const deleteControl = document.getElementById('delete-control');
+
+window.addEventListener('selectionChanged', () => {
+    if (deleteControl) {
+        deleteControl.style.display = appState.currentSelection ? 'flex' : 'none';
+    }
+});
+
+if (btnDeleteSelected) {
+    btnDeleteSelected.addEventListener('click', () => {
+        const sel = appState.currentSelection;
+        if (sel && confirm('Delete this component?')) {
+            sel.remove();
+            setCurrentSelection(null);
+            closeModal();
+            
+            const canvas = document.getElementById('panel-canvas');
+            if (canvas && canvas.querySelectorAll('.element-wrapper').length === 0) {
+                const es = canvas.querySelector('.empty-state');
+                if (es) es.style.display = 'block';
+            }
+            notifyProjectChanged();
+        }
+    });
+}
+
 // Initialize Properties Modal
 setupPropertiesModal(
     document.getElementById('property-modal'),

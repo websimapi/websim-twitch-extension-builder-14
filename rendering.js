@@ -1,6 +1,6 @@
 import { appState, incrementId, setCurrentSelection } from './state.js';
 import { applyWrapperLayout } from './layout.js';
-import { addResizeHandles, addDragAndResizeHandlers, addDeleteHandle } from './interactions.js';
+import { addResizeHandles, addDragAndResizeHandlers } from './interactions.js';
 import { notifyProjectChanged, isValidWebSimUrl } from './utils.js';
 
 export function getDefaultData(type) {
@@ -62,7 +62,6 @@ export function renderElementContent(wrapper, type, data) {
     }
     if (content) wrapper.appendChild(content);
     addResizeHandles(wrapper);
-    addDeleteHandle(wrapper);
 }
 
 export function renderElementToCanvas(type, props, canvas, onEdit) {
